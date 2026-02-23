@@ -211,11 +211,16 @@ class _SetupWizardState extends State<SetupWizard> {
                 children: [
                   Text(kid.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   if (sel && kid.devices.length > 1)
-                    ...kid.devices.map((d) => RadioListTile<HaDevice>(
-                      title: Text(d.displayName), value: d,
+                    RadioGroup<HaDevice>(
                       groupValue: _selectedDevice,
                       onChanged: (v) => setState(() => _selectedDevice = v),
-                    )),
+                      child: Column(
+                        children: kid.devices.map((d) => RadioListTile<HaDevice>(
+                          title: Text(d.displayName),
+                          value: d,
+                        )).toList(),
+                      ),
+                    ),
                   if (sel && kid.devices.length == 1)
                     Text('Gerät: ${kid.devices.first.displayName}',
                         style: const TextStyle(color: Colors.grey)),

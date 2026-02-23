@@ -14,7 +14,7 @@ class SecureStorage {
   }
 
   static Future<AccountConfig?> loadConfig() async {
-    final keys = AccountConfig(
+    final keys = const AccountConfig(
       haUrl: "", childToken: "", childName: "", childSlug: "",
       childId: "", deviceId: "", balanceEntityId: "",
       todayLimitEntityId: "", screenTimeSensorId: "",

@@ -25,8 +25,9 @@ class HaClient {
       Uri.parse("$haUrl/api/services/$domain/$service"),
       headers: _headers, body: json.encode(data),
     );
-    if (resp.statusCode != 200 && resp.statusCode != 201)
+    if (resp.statusCode != 200 && resp.statusCode != 201) {
       throw HaApiException("POST $domain/$service => ${resp.statusCode}", resp.body);
+    }
   }
 
   Future<List<Map<String, dynamic>>> getAllStates() async {
