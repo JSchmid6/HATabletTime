@@ -1,5 +1,6 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 
 import '../models/account_config.dart';
@@ -17,11 +18,12 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   late final HaClient _client;
+  late List<StoredDevice> _allDevices;
+  late StoredDevice _activeDevice;
 
   int _balance = 0;
   int _todayLimit = 0;
   int _usedToday = 0;
-  int _bookedToday = 0;
 
   bool _loading = true;
   String? _error;
@@ -33,6 +35,12 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _client = HaClient(haUrl: widget.config.haUrl, token: widget.config.childToken);
+    _allDevices = widget.config.allDevices;
+    // Default to the device that was selected during setup
+    _activeDevice = _allDevices.firstWhere(
+      (d) => d.deviceId == widget.config.deviceId,
+      orElse: () => _allDevices.first,
+    );
     _refresh();
     _timer = Timer.periodic(const Duration(seconds: 30), (_) => _refresh());
   }
@@ -45,18 +53,32 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> _refresh() async {
     try {
-      final b = await _client.getState(widget.config.balanceEntityId);
-      final l = await _client.getState(widget.config.todayLimitEntityId);
-      final s = await _client.getState(widget.config.screenTimeSensorId);
+      // Fetch each entity independently so one failure doesn't block the rest.
+      final results = await Future.wait([
+        _client.getState(widget.config.balanceEntityId).catchError((_) => <String, dynamic>{}),
+        _client.getState(_activeDevice.todayLimitEntityId).catchError((_) => <String, dynamic>{}),
+        _client.getState(_activeDevice.screenTimeSensorId).catchError((_) => <String, dynamic>{}),
+      ]);
+      final b = results[0];
+      final l = results[1];
+      final s = results[2];
+      debugPrint('[HomeScreen] balance=${b['state']} limit=${l['state']} used=${s['state']}');
+      debugPrint('[HomeScreen] entities: balance=${widget.config.balanceEntityId}'
+          ' limit=${_activeDevice.todayLimitEntityId}'
+          ' sensor=${_activeDevice.screenTimeSensorId}');
       setState(() {
-        _balance = (double.tryParse(b['state'] as String) ?? 0).round();
-        _todayLimit = (double.tryParse(l['state'] as String) ?? 0).round();
-        _usedToday = (double.tryParse(s['state'] as String) ?? 0).round();
+        _balance    = (double.tryParse(b['state'] as String? ?? '') ?? 0).round();
+        _todayLimit = (double.tryParse(l['state'] as String? ?? '') ?? 0).round();
+        _usedToday  = (double.tryParse(s['state'] as String? ?? '') ?? 0).round();
         _loading = false;
         _error = null;
       });
     } catch (e) {
-      setState(() { _error = 'Verbindungsfehler'; _loading = false; });
+      debugPrint('[HomeScreen] _refresh error: $e');
+      setState(() {
+        _error = 'Ladefehler: $e';
+        _loading = false;
+      });
     }
   }
 
@@ -67,10 +89,9 @@ class _HomeScreenState extends State<HomeScreen> {
       await _client.book(
         childSlug: widget.config.childSlug,
         childId: widget.config.childId,
-        deviceId: widget.config.deviceId,
+        deviceId: _activeDevice.deviceId,
         minutes: minutes,
       );
-      setState(() => _bookedToday += minutes);
       await _refresh();
     } catch (e) {
       if (mounted) {
@@ -125,6 +146,9 @@ class _HomeScreenState extends State<HomeScreen> {
             style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
 
+        // Device picker (only shown when child has multiple devices)
+        if (_allDevices.length > 1) ..._buildDevicePicker(),
+
         // Balance card
         Container(
           width: double.infinity,
@@ -157,7 +181,6 @@ class _HomeScreenState extends State<HomeScreen> {
         const SizedBox(height: 12),
 
         const Divider(),
-        _row('Heute gebucht', '$_bookedToday min'),
         _row('Aktuelles Limit', '$_todayLimit min'),
         _row('Heute verbraucht', '$_usedToday min'),
 
@@ -193,6 +216,30 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget _sectionLabel(String t) => Align(
       alignment: Alignment.centerLeft,
       child: Text(t, style: const TextStyle(color: Colors.grey)));
+
+  List<Widget> _buildDevicePicker() => [
+    SegmentedButton<String>(
+      segments: _allDevices
+          .map((d) => ButtonSegment<String>(
+                value: d.deviceId,
+                label: Text(d.displayName, overflow: TextOverflow.ellipsis),
+              ))
+          .toList(),
+      selected: {_activeDevice.deviceId},
+      onSelectionChanged: (sel) {
+        final picked = _allDevices.firstWhere((d) => d.deviceId == sel.first);
+        setState(() {
+          _activeDevice = picked;
+          _loading = true;
+        });
+        _refresh();
+      },
+      style: const ButtonStyle(
+        visualDensity: VisualDensity.compact,
+      ),
+    ),
+    const SizedBox(height: 8),
+  ];
 
   Widget _grid(List<int> amounts, {required bool isReturn}) =>
       GridView.count(

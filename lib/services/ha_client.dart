@@ -1,5 +1,6 @@
 ﻿import "dart:async";
 import "dart:convert";
+import "package:flutter/foundation.dart" show debugPrint;
 import "package:http/http.dart" as http;
 import "package:web_socket_channel/web_socket_channel.dart";
 
@@ -13,6 +14,38 @@ class HaClient {
     "Authorization": "Bearer $token",
     "Content-Type": "application/json",
   };
+
+  /// Quick check whether [haUrl] points to a real Home Assistant instance.
+  /// Returns `null` on success, or an error description on failure.
+  static Future<String?> validateHaUrl(String haUrl) async {
+    try {
+      final resp = await http.get(Uri.parse('$haUrl/api/'),
+          headers: {'Content-Type': 'application/json'})
+          .timeout(const Duration(seconds: 8));
+      // HA returns {"message": "API running."} with 401 (no token) or 200.
+      if (resp.statusCode == 200 || resp.statusCode == 401) {
+        // Extra check: HA always returns JSON, not HTML.
+        final ct = resp.headers['content-type'] ?? '';
+        if (ct.contains('text/html') || resp.body.contains('<!DOCTYPE')) {
+          return 'Der Server antwortet mit HTML statt JSON.\n'
+              'Das ist kein Home Assistant!\n'
+              'Prüfe die URL (z.B. http://homeassistant.local:8123).';
+        }
+        return null; // looks like HA
+      }
+      if (resp.statusCode == 404) {
+        if (resp.body.contains('<!DOCTYPE') || resp.body.contains('<html')) {
+          return 'Unter dieser URL läuft kein Home Assistant\n'
+              '(Server antwortet mit einer Webseite, nicht der HA-API).\n'
+              'Prüfe die URL und den Port (Standard: 8123).';
+        }
+        return 'Server antwortet mit 404. Prüfe die URL.';
+      }
+      return 'Unerwarteter Status ${resp.statusCode}.';
+    } catch (e) {
+      return 'Keine Verbindung: $e';
+    }
+  }
 
   Future<Map<String, dynamic>> getState(String entityId) async {
     final resp = await http.get(Uri.parse("$haUrl/api/states/$entityId"), headers: _headers);
@@ -34,6 +67,69 @@ class HaClient {
     final resp = await http.get(Uri.parse("$haUrl/api/states"), headers: _headers);
     if (resp.statusCode != 200) throw HaApiException("GET /api/states => ${resp.statusCode}", resp.body);
     return (json.decode(resp.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Returns all entity registry entries (includes unique_id, platform, entity_id).
+  Future<List<Map<String, dynamic>>> getEntityRegistry() async {
+    final resp = await http.get(
+        Uri.parse("$haUrl/api/config/entity_registry/list"),
+        headers: _headers);
+    if (resp.statusCode != 200) {
+      throw HaApiException("GET /api/config/entity_registry/list => ${resp.statusCode}", resp.body);
+    }
+    return (json.decode(resp.body) as List).cast<Map<String, dynamic>>();
+  }
+
+  /// Returns entity registry entries via WebSocket (more reliable than REST).
+  /// Returns the list of entries with unique_id, entity_id, platform etc.
+  static Future<List<Map<String, dynamic>>> getEntityRegistryViaWs(
+      String haUrl, String token) async {
+    final ws = await openWebSocket(haUrl, token);
+    try {
+      final result = await ws.send({'type': 'config/entity_registry/list'});
+      final entries = (result['result'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+      return entries;
+    } finally {
+      await ws.close();
+    }
+  }
+
+  /// Ensures `input_number.zeitkonto_{slug}` exists in HA.
+  ///
+  /// Tries to read the entity first; if missing, creates it via the
+  /// HA WebSocket API (`input_number/create`).
+  /// Returns `true` if the entity was freshly created, `false` if it already
+  /// existed.
+  Future<bool> ensureBalanceEntity(String slug, String childName) async {
+    final entityId = 'input_number.zeitkonto_$slug';
+    try {
+      await getState(entityId);
+      return false; // already exists
+    } catch (_) {}
+    // Create via WebSocket – HA derives the object_id from the name by slugifying it.
+    // "Zeitkonto max_mustermann" → slug "zeitkonto_max_mustermann" → input_number.zeitkonto_max_mustermann
+    final ws = await HaClient.openWebSocket(haUrl, token);
+    try {
+      final result = await ws.send({
+        'type': 'input_number/create',
+        'name': 'Zeitkonto $slug',
+        'min': 0.0,
+        'max': 600.0,
+        'step': 5.0,
+        'mode': 'box',
+        'icon': 'mdi:piggy-bank-outline',
+      });
+      debugPrint('[ensureBalance] WS result: $result');
+      if (result['success'] != true) {
+        final err = result['error'];
+        throw HaApiException(
+            'Zeitkonto-Entität konnte nicht erstellt werden: $err', result.toString());
+      }
+      return true;
+    } finally {
+      await ws.close();
+    }
   }
 
   Future<void> book({
@@ -98,6 +194,20 @@ class HaApiException implements Exception {
   final String message;
   final String? body;
   HaApiException(this.message, [this.body]);
+
+  /// Returns a short, user-friendly description.
+  /// Strips HTML responses and truncates long bodies.
+  String get userMessage {
+    if (body == null || body!.isEmpty) return message;
+    // Detect HTML responses (wrong server, reverse-proxy error, etc.)
+    if (body!.trimLeft().startsWith('<!') || body!.trimLeft().startsWith('<html')) {
+      return '$message\n(Server antwortet mit HTML — vermutlich kein Home Assistant)';
+    }
+    // Truncate very long bodies
+    final short = body!.length > 300 ? '${body!.substring(0, 300)}…' : body!;
+    return '$message\n$short';
+  }
+
   @override
-  String toString() => body != null ? "HaApiException: $message\n$body" : "HaApiException: $message";
+  String toString() => 'HaApiException: $userMessage';
 }

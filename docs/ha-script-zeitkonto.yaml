@@ -1,0 +1,33 @@
+##############################################################################
+# HATabletTime – Hilfsskript für die Dashboard-Buttons
+#
+# In HA anlegen: Einstellungen → Automatisierungen & Szenen → Skripte
+# → "Skript hinzufügen" → oben rechts ⋮ → "Als YAML bearbeiten"
+# → diesen Inhalt einfügen → Speichern
+#
+# Alternativ: scripts.yaml in HA-Konfigurationsverzeichnis ergänzen
+##############################################################################
+
+alias: Zeitkonto aufladen
+description: Addiert Minuten zum Zeitkonto eines Kindes
+fields:
+  konto:
+    description: Entity-ID des Zeitkontos (z.B. input_number.zeitkonto_max_mustermann)
+    required: true
+    selector:
+      text:
+  minuten:
+    description: Anzahl Minuten hinzufügen (positiv = aufladen)
+    required: true
+    selector:
+      number:
+        min: -600
+        max: 600
+sequence:
+  - action: input_number.set_value
+    target:
+      entity_id: "{{ konto }}"
+    data:
+      value: "{{ [0, (states(konto) | float(0)) + (minuten | float)] | max }}"
+mode: queued
+max: 5

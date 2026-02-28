@@ -1,3 +1,6 @@
+import 'dart:convert';
+
+import 'package:flutter/foundation.dart' show debugPrint;
 import 'package:flutter/material.dart';
 
 import '../models/account_config.dart';
@@ -23,7 +26,7 @@ class SetupWizard extends StatefulWidget {
 class _SetupWizardState extends State<SetupWizard> {
   int _step = 0;
 
-  final _urlCtrl = TextEditingController(text: 'http://');
+  final _urlCtrl = TextEditingController(text: 'https://');
   final _tokenCtrl = TextEditingController();
 
   String? _urlError;
@@ -39,6 +42,7 @@ class _SetupWizardState extends State<SetupWizard> {
   String? _provisioningError;
 
   void _next() => setState(() => _step++);
+  void _back() => setState(() { if (_step > 0) _step--; });
 
   // ── Step 1 ───────────────────────────────────────────────────────
 
@@ -46,14 +50,10 @@ class _SetupWizardState extends State<SetupWizard> {
     final url = _urlCtrl.text.trim().replaceAll(RegExp(r'/$'), '');
     if (url.isEmpty) { setState(() => _urlError = 'Bitte URL eingeben'); return; }
     setState(() { _urlError = null; _busy = true; });
-    try {
-      // A 401 from HA means it is reachable — that is enough here.
-      await HaClient(haUrl: url, token: 'x').getAllStates()
-          .timeout(const Duration(seconds: 6));
-    } on HaApiException {
-      // 401 is expected without token
-    } catch (e) {
-      setState(() { _urlError = 'Keine Verbindung: $e'; _busy = false; }); return;
+    final error = await HaClient.validateHaUrl(url);
+    if (error != null) {
+      setState(() { _urlError = error; _busy = false; });
+      return;
     }
     setState(() => _busy = false);
     _next();
@@ -67,13 +67,18 @@ class _SetupWizardState extends State<SetupWizard> {
     setState(() { _tokenError = null; _busy = true; });
     try {
       final c = HaClient(haUrl: _urlCtrl.text.trim().replaceAll(RegExp(r'/$'), ''), token: token);
-      final kids = await EntityDiscovery(c).discoverChildren();
-      if (kids.isEmpty) {
-        setState(() { _tokenError = 'Keine FamilyLink-Kinder gefunden.\nIst HAFamilyLink installiert?'; _busy = false; });
+      final result = await EntityDiscovery(c).discoverChildren();
+      if (!result.hasChildren) {
+        setState(() {
+          _tokenError = result.diagnosticInfo ?? 'Keine FamilyLink-Kinder gefunden.\nIst HAFamilyLink installiert?';
+          _busy = false;
+        });
         return;
       }
-      setState(() { _children = kids; _busy = false; });
+      setState(() { _children = result.children; _busy = false; });
       _next();
+    } on HaApiException catch (e) {
+      setState(() { _tokenError = 'Fehler: ${e.userMessage}'; _busy = false; });
     } catch (e) {
       setState(() { _tokenError = 'Fehler: $e'; _busy = false; });
     }
@@ -115,20 +120,30 @@ class _SetupWizardState extends State<SetupWizard> {
       final childToken = tokenResult['result'] as String? ?? adminToken;
       await ws.close();
 
-      setState(() => _status = 'Prüfe Zeitkonto-Entität...');
+      setState(() => _status = 'Prüfe/erstelle Zeitkonto-Entität...');
       final balanceId = 'input_number.zeitkonto_$slug';
-      try {
-        await HaClient(haUrl: haUrl, token: adminToken).getState(balanceId);
-      } catch (_) {
-        // Non-fatal: entity may need to be created by user in HA
+      final adminClient = HaClient(haUrl: haUrl, token: adminToken);
+      final created = await adminClient.ensureBalanceEntity(slug, child.name);
+      if (created) {
+        setState(() => _status = 'Zeitkonto-Entität angelegt ✓');
+      } else {
+        setState(() => _status = 'Zeitkonto-Entität gefunden ✓');
       }
 
       setState(() => _status = 'Speichere Konfiguration...');
+      // Encode all devices of this child so the HomeScreen can offer a picker.
+      final devicesJson = jsonEncode(child.devices.map((d) => {
+        'deviceId': d.deviceId,
+        'displayName': d.displayName,
+        'todayLimitEntityId': d.todayLimitEntityId,
+        'screenTimeSensorId': d.screenTimeSensorId,
+      }).toList());
       final config = AccountConfig(
         haUrl: haUrl, childToken: childToken, childName: child.name,
         childSlug: slug, childId: child.childId, deviceId: device.deviceId,
         balanceEntityId: balanceId, todayLimitEntityId: device.todayLimitEntityId,
         screenTimeSensorId: device.screenTimeSensorId,
+        devicesJson: devicesJson,
       );
       await SecureStorage.saveConfig(config);
 
@@ -136,6 +151,7 @@ class _SetupWizardState extends State<SetupWizard> {
       await Future.delayed(const Duration(milliseconds: 800));
       widget.onComplete(config);
     } catch (e) {
+      debugPrint('[provision] ERROR: $e');
       setState(() { _provisioningError = e.toString(); _provisioning = false; });
     }
   }
@@ -144,7 +160,12 @@ class _SetupWizardState extends State<SetupWizard> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-        appBar: AppBar(title: const Text('Einrichtung')),
+        appBar: AppBar(
+          title: const Text('Einrichtung'),
+          leading: _step > 0 && _step < 3
+              ? IconButton(icon: const Icon(Icons.arrow_back), onPressed: _back)
+              : null,
+        ),
         body: SafeArea(
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -160,7 +181,7 @@ class _SetupWizardState extends State<SetupWizard> {
     TextField(
       controller: _urlCtrl,
       decoration: InputDecoration(labelText: 'Home Assistant URL',
-          hintText: 'http://homeassistant.local:8123',
+          hintText: 'https://homeassistant.local:8123',
           errorText: _urlError, border: const OutlineInputBorder()),
       keyboardType: TextInputType.url, autocorrect: false,
     ),
@@ -179,11 +200,33 @@ class _SetupWizardState extends State<SetupWizard> {
     TextField(
       controller: _tokenCtrl,
       decoration: InputDecoration(labelText: 'Long-lived Access Token',
-          errorText: _tokenError, border: const OutlineInputBorder()),
+          errorText: _tokenError != null && _tokenError!.length < 60 ? _tokenError : null,
+          border: const OutlineInputBorder()),
       obscureText: true,
     ),
+    // Show longer diagnostic info in a scrollable container
+    if (_tokenError != null && _tokenError!.length >= 60) ...[
+      const SizedBox(height: 12),
+      Container(
+        constraints: const BoxConstraints(maxHeight: 200),
+        decoration: BoxDecoration(
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: Colors.red.shade200),
+        ),
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(12),
+          child: SelectableText(
+            _tokenError!,
+            style: TextStyle(color: Colors.red.shade900, fontSize: 13, fontFamily: 'monospace'),
+          ),
+        ),
+      ),
+    ],
     const SizedBox(height: 24),
     _wideButton(onPressed: _busy ? null : _loadChildren, label: 'Weiter'),
+    const SizedBox(height: 8),
+    Center(child: TextButton(onPressed: _busy ? null : _back, child: const Text('Zurück'))),
   ]);
 
   Widget _step3() {
@@ -211,15 +254,13 @@ class _SetupWizardState extends State<SetupWizard> {
                 children: [
                   Text(kid.name, style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                   if (sel && kid.devices.length > 1)
-                    RadioGroup<HaDevice>(
-                      groupValue: _selectedDevice,
-                      onChanged: (v) => setState(() => _selectedDevice = v),
-                      child: Column(
-                        children: kid.devices.map((d) => RadioListTile<HaDevice>(
-                          title: Text(d.displayName),
-                          value: d,
-                        )).toList(),
-                      ),
+                    Column(
+                      children: kid.devices.map((d) => RadioListTile<HaDevice>(
+                        title: Text(d.displayName),
+                        value: d,
+                        groupValue: _selectedDevice,
+                        onChanged: (v) => setState(() => _selectedDevice = v),
+                      )).toList(),
                     ),
                   if (sel && kid.devices.length == 1)
                     Text('Gerät: ${kid.devices.first.displayName}',
@@ -236,6 +277,8 @@ class _SetupWizardState extends State<SetupWizard> {
             ? () { _next(); _provision(); } : null,
         label: 'Einrichten',
       ),
+      const SizedBox(height: 8),
+      Center(child: TextButton(onPressed: _back, child: const Text('Zurück'))),
     ]);
   }
 

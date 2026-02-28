@@ -1,0 +1,251 @@
+﻿##############################################################################
+# HATabletTime - Eltern-Dashboard (Lovelace YAML)
+#
+# Einfuegen unter: HA -> Einstellungen -> Dashboards -> Dashboard hinzufuegen
+# -> (oben rechts) Edit Dashboard -> Raw-Konfigurationseditor
+#
+# KONFIGURATION - alle Entity-IDs hier eintragen, dann fertig
+#
+#  Entity-IDs ermitteln: HA -> Entwicklerwerkzeuge -> Zustaende
+#  Suche nach "zeitkonto", "today_s_limit", "screen_time"
+#
+#  KIND 1:
+#    input_number.zeitkonto_SLUG1
+#    sensor.SLUG1_device_DEVICEID1_screen_time
+#    number.SLUG1_DEVICEID1_today_s_limit
+#
+#  KIND 2:
+#    input_number.zeitkonto_SLUG2
+#    sensor.SLUG2_device_DEVICEID2_screen_time
+#    number.SLUG2_DEVICEID2_today_s_limit
+#
+#  KIND 3 (optional - Block loeschen wenn nicht benoetigt):
+#    input_number.zeitkonto_SLUG3
+#    sensor.SLUG3_device_DEVICEID3_screen_time
+#    number.SLUG3_DEVICEID3_today_s_limit
+#
+# Voraussetzungen:
+#   - HAFamilyLink installiert
+#   - input_number.zeitkonto_* vorhanden (wird vom Setup-Wizard angelegt)
+#   - Skript "zeitkonto_aufladen" anlegen (siehe docs/ha-script-zeitkonto.yaml)
+##############################################################################
+
+title: Zeitkonten
+views:
+  - title: "Ubersicht"
+    path: zeitkonten
+    icon: mdi:piggy-bank-outline
+    type: masonry
+    cards:
+
+      # KIND 1 - Name und Entity-IDs anpassen
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## Kind 1"
+          - type: entities
+            entities:
+              - entity: input_number.zeitkonto_SLUG1
+                name: Guthaben
+                icon: mdi:piggy-bank-outline
+              - entity: sensor.SLUG1_device_DEVICEID1_screen_time
+                name: Heute verbraucht
+                icon: mdi:cellphone-clock
+              - entity: number.SLUG1_DEVICEID1_today_s_limit
+                name: Heutiges Limit
+                icon: mdi:timer-outline
+          - type: gauge
+            entity: sensor.SLUG1_device_DEVICEID1_screen_time
+            name: Verbrauch heute
+            unit: min
+            min: 0
+            max: 180
+            needle: true
+            severity:
+              green: 0
+              yellow: 120
+              red: 150
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: "+30 min"
+                icon: mdi:plus
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG1
+                      minuten: 30
+              - type: button
+                name: "+60 min"
+                icon: mdi:plus-box
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG1
+                      minuten: 60
+              - type: button
+                name: "+90 min"
+                icon: mdi:star
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG1
+                      minuten: 90
+
+      # KIND 2 - Name und Entity-IDs anpassen
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## Kind 2"
+          - type: entities
+            entities:
+              - entity: input_number.zeitkonto_SLUG2
+                name: Guthaben
+                icon: mdi:piggy-bank-outline
+              - entity: sensor.SLUG2_device_DEVICEID2_screen_time
+                name: Heute verbraucht
+                icon: mdi:cellphone-clock
+              - entity: number.SLUG2_DEVICEID2_today_s_limit
+                name: Heutiges Limit
+                icon: mdi:timer-outline
+          - type: gauge
+            entity: sensor.SLUG2_device_DEVICEID2_screen_time
+            name: Verbrauch heute
+            unit: min
+            min: 0
+            max: 180
+            needle: true
+            severity:
+              green: 0
+              yellow: 120
+              red: 150
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: "+30 min"
+                icon: mdi:plus
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG2
+                      minuten: 30
+              - type: button
+                name: "+60 min"
+                icon: mdi:plus-box
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG2
+                      minuten: 60
+              - type: button
+                name: "+90 min"
+                icon: mdi:star
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG2
+                      minuten: 90
+
+      # KIND 3 - Name und Entity-IDs anpassen (Block loeschen wenn nicht benoetigt)
+      - type: vertical-stack
+        cards:
+          - type: markdown
+            content: "## Kind 3"
+          - type: entities
+            entities:
+              - entity: input_number.zeitkonto_SLUG3
+                name: Guthaben
+                icon: mdi:piggy-bank-outline
+              - entity: sensor.SLUG3_device_DEVICEID3_screen_time
+                name: Heute verbraucht
+                icon: mdi:cellphone-clock
+              - entity: number.SLUG3_DEVICEID3_today_s_limit
+                name: Heutiges Limit
+                icon: mdi:timer-outline
+          - type: gauge
+            entity: sensor.SLUG3_device_DEVICEID3_screen_time
+            name: Verbrauch heute
+            unit: min
+            min: 0
+            max: 180
+            needle: true
+            severity:
+              green: 0
+              yellow: 120
+              red: 150
+          - type: horizontal-stack
+            cards:
+              - type: button
+                name: "+30 min"
+                icon: mdi:plus
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG3
+                      minuten: 30
+              - type: button
+                name: "+60 min"
+                icon: mdi:plus-box
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG3
+                      minuten: 60
+              - type: button
+                name: "+90 min"
+                icon: mdi:star
+                tap_action:
+                  action: perform-action
+                  perform_action: script.turn_on
+                  target:
+                    entity_id: script.zeitkonto_aufladen
+                  data:
+                    variables:
+                      konto: input_number.zeitkonto_SLUG3
+                      minuten: 90
+
+      # GESAMT-UBERSICHT
+      - type: entities
+        title: Alle Konten
+        entities:
+          - entity: input_number.zeitkonto_SLUG1
+            name: "Kind 1 - Guthaben"
+            icon: mdi:piggy-bank-outline
+          - entity: input_number.zeitkonto_SLUG2
+            name: "Kind 2 - Guthaben"
+            icon: mdi:piggy-bank-outline
+          - entity: input_number.zeitkonto_SLUG3
+            name: "Kind 3 - Guthaben"
+            icon: mdi:piggy-bank-outline
