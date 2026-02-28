@@ -48,16 +48,20 @@ class HaClient {
   }
 
   Future<Map<String, dynamic>> getState(String entityId) async {
-    final resp = await http.get(Uri.parse("$haUrl/api/states/$entityId"), headers: _headers);
+    final resp = await http
+        .get(Uri.parse("$haUrl/api/states/$entityId"), headers: _headers)
+        .timeout(const Duration(seconds: 10));
     if (resp.statusCode != 200) throw HaApiException("GET $entityId => ${resp.statusCode}", resp.body);
     return json.decode(resp.body) as Map<String, dynamic>;
   }
 
   Future<void> callService(String domain, String service, Map<String, dynamic> data) async {
-    final resp = await http.post(
-      Uri.parse("$haUrl/api/services/$domain/$service"),
-      headers: _headers, body: json.encode(data),
-    );
+    final url = "$haUrl/api/services/$domain/$service";
+    debugPrint('[HaClient] POST $url body=${json.encode(data)}');
+    final resp = await http
+        .post(Uri.parse(url), headers: _headers, body: json.encode(data))
+        .timeout(const Duration(seconds: 10));
+    debugPrint('[HaClient] POST $url => ${resp.statusCode} body=${resp.body}');
     if (resp.statusCode != 200 && resp.statusCode != 201) {
       throw HaApiException("POST $domain/$service => ${resp.statusCode}", resp.body);
     }
@@ -132,13 +136,40 @@ class HaClient {
     }
   }
 
+  /// Books [minutes] for a child by calling `script.buche_tabletzeit`.
+  ///
+  /// Matches the script interface defined in the HAFamilyLink integration docs.
+  /// Entity-IDs for the FamilyLink entities must be passed from the app's
+  /// entity-registry discovery (because HA generates them from device names
+  /// and they are not predictable from child_id/device_id alone).
+  ///
+  /// Variables:
+  ///   `kind`             – child slug (e.g. max_mustermann)
+  ///   `child_id`         – FamilyLink child_id (opaque Google ID)
+  ///   `device_id`        – FamilyLink device_id (opaque device ID)
+  ///   `limit_entity_id`  – actual entity_id of TodayLimitNumber (from discovery)
+  ///   `sensor_entity_id` – actual entity_id of screen-time sensor (from discovery)
+  ///   `minuten`          – positive = buy time, negative = return time
   Future<void> book({
-    required String childSlug, required String childId,
-    required String deviceId, required int minutes,
-  }) => callService("script", "buche_tabletzeit", {
-    "kind": childSlug, "child_id": childId,
-    "device_id": deviceId, "minuten": minutes,
-  });
+    required String childSlug,
+    required String childId,
+    required String deviceId,
+    required String limitEntityId,
+    required String screenTimeSensorId,
+    required int minutes,
+    required String scriptEntityId,
+  }) =>
+      callService('script', 'turn_on', {
+        'entity_id': scriptEntityId,
+        'variables': {
+          'kind': childSlug,
+          'child_id': childId,
+          'device_id': deviceId,
+          'limit_entity_id': limitEntityId,
+          'sensor_entity_id': screenTimeSensorId,
+          'minuten': minutes,
+        },
+      });
 
   static Future<WsSession> openWebSocket(String haUrl, String adminToken) async {
     final wsUrl = haUrl.replaceFirst("https://", "wss://").replaceFirst("http://", "ws://");

@@ -130,6 +130,29 @@ class _SetupWizardState extends State<SetupWizard> {
         setState(() => _status = 'Zeitkonto-Entität gefunden ✓');
       }
 
+      setState(() => _status = 'Suche Buchungs-Script...');
+      String bookScriptEntityId = 'script.tabletzeit_buchen'; // Fallback
+      try {
+        final allStates = await adminClient.getAllStates();
+        final scriptEntity = allStates.firstWhere(
+          (s) {
+            final id = s['entity_id'] as String? ?? '';
+            if (!id.startsWith('script.')) return false;
+            final name = ((s['attributes'] as Map?)?['friendly_name'] as String? ?? '').toLowerCase();
+            return name.contains('tabletzeit') || name.contains('buchen') || id.contains('tabletzeit');
+          },
+          orElse: () => {},
+        );
+        if (scriptEntity.isNotEmpty) {
+          bookScriptEntityId = scriptEntity['entity_id'] as String;
+          setState(() => _status = 'Script gefunden: $bookScriptEntityId ✓');
+        } else {
+          setState(() => _status = 'Script nicht gefunden, nutze Fallback ✓');
+        }
+      } catch (e) {
+        debugPrint('[provision] Script-Discovery failed: $e');
+      }
+
       setState(() => _status = 'Speichere Konfiguration...');
       // Encode all devices of this child so the HomeScreen can offer a picker.
       final devicesJson = jsonEncode(child.devices.map((d) => {
@@ -144,6 +167,7 @@ class _SetupWizardState extends State<SetupWizard> {
         balanceEntityId: balanceId, todayLimitEntityId: device.todayLimitEntityId,
         screenTimeSensorId: device.screenTimeSensorId,
         devicesJson: devicesJson,
+        bookScriptEntityId: bookScriptEntityId,
       );
       await SecureStorage.saveConfig(config);
 

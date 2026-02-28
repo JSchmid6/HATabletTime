@@ -1,0 +1,131 @@
+##############################################################################
+# HATabletTime – Buchungs-Script (wird von der Tablet-App aufgerufen)
+#
+# In HA anlegen: Einstellungen → Automatisierungen & Szenen → Skripte
+# → "Skript hinzufügen" → oben rechts ⋮ → "Als YAML bearbeiten"
+# → diesen Inhalt einfügen → Speichern
+#
+# Alternativ: scripts.yaml im HA-Konfigurationsverzeichnis ergänzen.
+#
+# Parameter-Beschreibung:
+#   kind           – Child-Slug (z.B. max_mustermann); bestimmt das Zeitkonto
+#                    input_number.zeitkonto_{kind}
+#   child_id       – FamilyLink child_id (opaque Google-ID)
+#   device_id      – FamilyLink device_id (opaque Android-Geräte-ID)
+#   limit_entity_id   – Echte Entity-ID des TodayLimit-Number (von der App
+#                       per Entity-Registry-Discovery ermittelt, da HA den
+#                       Namen aus Kindname + Gerätename generiert)
+#   sensor_entity_id  – Echte Entity-ID des Screen-Time-Sensors (ebenfalls
+#                       per Discovery ermittelt)
+#   minuten        – positiv = Zeit kaufen, negativ = Zeit zurückgeben
+##############################################################################
+
+# WICHTIG: HA generiert die Entity-ID aus dem Alias "Tabletzeit buchen"
+# → script.tabletzeit_buchen
+# Falls du einen anderen Alias verwendest, Entity-ID entsprechend anpassen.
+#
+alias: Tabletzeit buchen
+description: >
+  Buchungs-Script für HATabletTime.
+  Prüft Guthaben und FamilyLink-Limit, bucht dann:
+  Guthaben -= minuten, Today's Limit += minuten (bzw. umgekehrt).
+fields:
+  kind:
+    description: Child-Slug (z.B. max_mustermann) → bestimmt input_number.zeitkonto_{kind}
+    required: true
+    selector:
+      text:
+  child_id:
+    description: FamilyLink child_id (opaque Google-ID)
+    required: true
+    selector:
+      text:
+  device_id:
+    description: FamilyLink device_id (opaque Android-Geräte-ID)
+    required: true
+    selector:
+      text:
+  limit_entity_id:
+    description: Echte Entity-ID des TodayLimit-Number (von App per Registry-Discovery ermittelt)
+    required: true
+    selector:
+      text:
+  sensor_entity_id:
+    description: Echte Entity-ID des Screen-Time-Sensors (von App per Registry-Discovery ermittelt)
+    required: true
+    selector:
+      text:
+  minuten:
+    description: Anzahl Minuten (positiv = Zeit kaufen, negativ = Zeit zurückgeben)
+    required: true
+    selector:
+      number:
+        min: -120
+        max: 120
+        step: 15
+
+variables:
+  konto:           "input_number.zeitkonto_{{ kind }}"
+  guthaben:        "{{ states(konto) | float(0) | round(0) | int }}"
+  aktuelles_limit: "{{ states(limit_entity_id) | float(0) | round(0) | int }}"
+  verbraucht:      "{{ states(sensor_entity_id) | float(0) | round(0) | int }}"
+  max_guthaben:    "{{ state_attr(konto, 'max') | float(600) | int }}"
+  neues_guthaben:  "{{ guthaben - minuten }}"
+  neues_limit:     "{{ aktuelles_limit + minuten }}"
+
+sequence:
+  - choose:
+      # ── Vorwärtsbuchung (Zeit kaufen) ──────────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ minuten | int > 0 }}"
+          - condition: template
+            value_template: "{{ guthaben >= minuten }}"
+          - condition: template
+            value_template: "{{ neues_limit <= 720 }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "{{ limit_entity_id }}"
+            data:
+              value: "{{ neues_limit }}"
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ konto }}"
+            data:
+              value: "{{ neues_guthaben }}"
+          - action: logbook.log
+            data:
+              name: "Zeitkonto {{ kind }}"
+              message: >-
+                {{ minuten }} Minuten gebucht.
+                Guthaben jetzt: {{ neues_guthaben }} min
+
+      # ── Rückwärtsbuchung (Zeit zurückgeben) ────────────────────────────────
+      - conditions:
+          - condition: template
+            value_template: "{{ minuten | int < 0 }}"
+          - condition: template
+            value_template: "{{ neues_guthaben <= max_guthaben }}"
+          - condition: template
+            value_template: "{{ neues_limit >= verbraucht }}"
+        sequence:
+          - action: number.set_value
+            target:
+              entity_id: "{{ limit_entity_id }}"
+            data:
+              value: "{{ neues_limit }}"
+          - action: input_number.set_value
+            target:
+              entity_id: "{{ konto }}"
+            data:
+              value: "{{ neues_guthaben }}"
+          - action: logbook.log
+            data:
+              name: "Zeitkonto {{ kind }}"
+              message: >-
+                {{ minuten | abs }} Minuten zurückgegeben.
+                Guthaben jetzt: {{ neues_guthaben }} min
+
+mode: queued
+max: 5

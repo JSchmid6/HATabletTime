@@ -42,6 +42,8 @@ class AccountConfig {
   /// JSON-encoded list of all devices for this child.
   /// Empty string = only the single device from [deviceId] fields.
   final String devicesJson;
+  /// Entity-ID des Buchungs-Scripts (z.B. script.tabletzeit_buchen).
+  final String bookScriptEntityId;
 
   const AccountConfig({
     required this.haUrl,
@@ -54,6 +56,7 @@ class AccountConfig {
     required this.todayLimitEntityId,
     required this.screenTimeSensorId,
     this.devicesJson = '',
+    this.bookScriptEntityId = 'script.tabletzeit_buchen',
   });
 
   /// All bookable devices for this child.
@@ -86,7 +89,17 @@ class AccountConfig {
     'balanceEntityId': balanceEntityId, 'todayLimitEntityId': todayLimitEntityId,
     'screenTimeSensorId': screenTimeSensorId,
     'devicesJson': devicesJson,
+    'bookScriptEntityId': bookScriptEntityId,
   };
+
+  AccountConfig copyWith({String? haUrl, String? bookScriptEntityId}) => AccountConfig(
+    haUrl: haUrl ?? this.haUrl,
+    childToken: childToken, childName: childName, childSlug: childSlug,
+    childId: childId, deviceId: deviceId, balanceEntityId: balanceEntityId,
+    todayLimitEntityId: todayLimitEntityId, screenTimeSensorId: screenTimeSensorId,
+    devicesJson: devicesJson,
+    bookScriptEntityId: bookScriptEntityId ?? this.bookScriptEntityId,
+  );
 
   factory AccountConfig.fromMap(Map<String, String> m) => AccountConfig(
     haUrl: m['haUrl']!, childToken: m['childToken']!, childName: m['childName']!,
@@ -94,5 +107,6 @@ class AccountConfig {
     balanceEntityId: m['balanceEntityId']!, todayLimitEntityId: m['todayLimitEntityId']!,
     screenTimeSensorId: m['screenTimeSensorId']!,
     devicesJson: m['devicesJson'] ?? '',
+    bookScriptEntityId: m['bookScriptEntityId'] ?? 'script.tabletzeit_buchen',
   );
 }

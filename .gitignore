@@ -23,3 +23,5 @@ build/
 .vscode/
 .DS_Store
 lib/config/secrets.dart
+debug.log
+.metadata
