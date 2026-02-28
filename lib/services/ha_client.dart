@@ -136,7 +136,7 @@ class HaClient {
     }
   }
 
-  /// Books [minutes] for a child by calling `script.buche_tabletzeit`.
+  /// Books [minutes] for a child by calling `script.tabletzeit_buchen`.
   ///
   /// Matches the script interface defined in the HAFamilyLink integration docs.
   /// Entity-IDs for the FamilyLink entities must be passed from the app's
